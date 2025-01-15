@@ -59,3 +59,4 @@ agents-and-function-calling/bedrock-agents/agent-blueprint-templates/.package-lo
 agents-and-function-calling/bedrock-agents/agent-blueprint-templates/yarn.lock
 
 config.py
+**/*.cpython-310..pyc
