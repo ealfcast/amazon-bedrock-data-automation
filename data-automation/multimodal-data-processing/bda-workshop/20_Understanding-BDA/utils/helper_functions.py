@@ -6,10 +6,11 @@ import io
 from PyPDF2 import PdfReader, PdfWriter
 from botocore.exceptions import ClientError
 from IPython.display import HTML
-
-
-bda_client = boto3.client('bedrock-data-automation')
-bda_runtime_client = boto3.client('bedrock-data-automation-runtime')
+from IPython.display import display
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
+import requests
+import json
 
 
 def get_bucket_and_key(s3_uri):
@@ -19,7 +20,7 @@ def get_bucket_and_key(s3_uri):
     return (bucket_name, object_key)
 
 
-def wait_for_job_to_complete(invocationArn):
+def wait_for_job_to_complete(bda_runtime_client, invocationArn):
     get_status_response = bda_runtime_client.get_data_automation_status(
          invocationArn=invocationArn)
     status = get_status_response['status']
@@ -31,7 +32,8 @@ def wait_for_job_to_complete(invocationArn):
         time.sleep(10)
         iteration_count += 1
         if iteration_count >= max_iterations:
-            print(f"Maximum number of iterations ({max_iterations}) reached. Breaking the loop.")
+            print(f"Maximum number of iterations ({max_iterations}) reached. \
+                Breaking the loop.")
             break
         get_status_response = bda_runtime_client.get_data_automation_status(
          invocationArn=invocationArn)
@@ -43,7 +45,7 @@ def wait_for_job_to_complete(invocationArn):
     return get_status_response
 
 
-def read_s3_object(s3_uri):
+def read_s3_object(s3_uri, encoding='utf-8'):
     # Parse the S3 URI
     parsed_uri = urlparse(s3_uri)
     bucket_name = parsed_uri.netloc
@@ -53,9 +55,11 @@ def read_s3_object(s3_uri):
     try:
         # Get the object from S3
         response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
-        
         # Read the content of the object
-        content = response['Body'].read().decode('utf-8')
+        if encoding:
+            content = response['Body'].read().decode(encoding)
+        else:
+            content = response
         return content
     except Exception as e:
         print(f"Error reading S3 object: {e}")
@@ -113,12 +117,10 @@ def display_html(data, root='root', expanded=True, bg_color='#f0f0f0'):
             <button class="toggle-btn" style="margin-bottom: 10px;">{'Collapse' if expanded else 'Expand'}</button>
             <pre class="json-content" style="display: {'block' if expanded else 'none'};">{data}</pre>
         </div>
-        
         <script>
         (function() {{
             var toggleBtn = document.currentScript.previousElementSibling.querySelector('.toggle-btn');
             var jsonContent = document.currentScript.previousElementSibling.querySelector('.json-content');
-            
             toggleBtn.addEventListener('click', function() {{
                 if (jsonContent.style.display === 'none') {{
                     jsonContent.style.display = 'block';
@@ -144,19 +146,6 @@ def wait_for_completion(
     max_iterations=60,
     delay=10
 ):
-    """
-    Generic function to wait for a boto3 BDA operation to complete.
-
-    :param client: boto3 client instance
-    :param get_status_function: Function to call to get the status (e.g., get_job_status)
-    :param resource_arn: ARN of the resource to check
-    :param completion_states: List of states indicating successful completion
-    :param error_states: List of states indicating an error
-    :param max_iterations: Maximum number of status checks before giving up
-    :param delay: Time in seconds to wait between status checks
-    :return: The final status of the resource
-    :raises: Exception if the operation fails or exceeds max_iterations
-    """
     for _ in range(max_iterations):
         try:
             response = get_status_function(**status_kwargs)
@@ -176,3 +165,44 @@ def wait_for_completion(
             raise Exception(f"Error checking status: {str(e)}")
 
     raise Exception(f"Operation timed out after {max_iterations} iterations")
+
+def send_request(region, url, method, credentials, payload=None, service='bedrock'):
+    host = url.split("/")[2]
+    request = AWSRequest(
+            method,
+            url,
+            data=payload,
+            headers={'Host': host, 'Content-Type':'application/json'}
+    )    
+    SigV4Auth(credentials, service, region).add_auth(request)
+    response = requests.request(method, url, headers=dict(request.headers), data=payload, timeout=50)
+    response.raise_for_status()
+    content = response.content.decode("utf-8")
+    data = json.loads(content)
+    return data
+
+def invoke_blueprint_recommendation_async(bda_client,region_name, credentials, payload):
+    url = f"{bda_client.meta.endpoint_url}/invokeBlueprintRecommendationAsync"
+    print(f'Sending request to {url}')
+    result = send_request(
+        region = region_name,
+        url = url,
+        method = "POST", 
+        credentials = credentials,
+        payload=payload
+    )
+    return result
+
+
+def get_blueprint_recommendation(bda_client, region_name, credentials, job_id):
+    url = f"{bda_client.meta.endpoint_url}/getBlueprintRecommendation/{job_id}/"
+    result = send_request(
+        region = region_name,
+        url = url,
+        method = "POST",
+        credentials = credentials        
+    )
+    return result
+
+
+
