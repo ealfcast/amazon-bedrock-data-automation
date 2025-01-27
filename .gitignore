@@ -61,3 +61,4 @@ agents-and-function-calling/bedrock-agents/agent-blueprint-templates/yarn.lock
 config.py
 **/*.pyc
 
+data-automation/multimodal-data-processing/bda-workshop/30_Industry-Use-Cases/31_Document_Processing/32_Mortgage_and_Lending/result.json
