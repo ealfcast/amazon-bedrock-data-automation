@@ -1,6 +1,0 @@
-pydantic
-boto3
-pandas
-path
-pathlib
-openpyxl
